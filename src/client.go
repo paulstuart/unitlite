@@ -7,6 +7,8 @@ import (
 	"github.com/canonical/go-dqlite/client"
 )
 
+func logFunc(l client.LogLevel, format string, a ...interface{}) {}
+
 func getLeader(cluster []string) (*client.Client, error) {
 	store := getStore(cluster)
 
@@ -19,11 +21,7 @@ func getLeader(cluster []string) (*client.Client, error) {
 func getStore(cluster []string) client.NodeStore {
 	store := client.NewInmemNodeStore()
 	if len(cluster) == 0 {
-		cluster = []string{
-			"127.0.0.1:9181",
-			"127.0.0.1:9182",
-			"127.0.0.1:9183",
-		}
+		cluster = defaultCluster
 	}
 	infos := make([]client.NodeInfo, 3)
 	for i, address := range cluster {

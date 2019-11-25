@@ -33,9 +33,14 @@ RUN mkdir -p /root/go/src/github.com/paulstuart #/unitlite
 # host version uses ssh, but we don't want that inside docker container
 RUN git config --global url."https://github.com/".insteadOf "git@github.com:"
 
+RUN echo hey
 # get dependencies (TODO: rethink this after evaluating)
 #RUN cd /root/go/src/github.com/paulstuart/unitlite/src && go get -u -v
 RUN cd /root/go/src/github.com/paulstuart && git clone https://github.com/paulstuart/unitlite.git
 
-WORKDIR /root/go/src/github.com/paulstuart/unitlite
-RUN cd src && go get -u -v ./...
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+RUN cd /root/go/src/github.com/paulstuart/unitlite/src && go get -u -v ./...
+#RUN cd /root/go/src/github.com/paulstuart/unitlite && ls -lR
+
+RUN apt-get install -y vim net-tools
