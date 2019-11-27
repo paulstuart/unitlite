@@ -32,9 +32,32 @@ Complete documentation is available at https://github.com/canonical/go-dqlite`,
 	cmd.AddCommand(newAdd())
 	cmd.AddCommand(newUpdate())
 	cmd.AddCommand(newQuery())
-	cmd.AddCommand(newBenchmark())
+	//	cmd.AddCommand(newBenchmark())
 	cmd.AddCommand(newCluster())
 	cmd.AddCommand(newAdhoc())
+	cmd.AddCommand(newWeb())
+
+	return cmd
+}
+
+// Start a web server for remote clients.
+func newWeb() *cobra.Command {
+	var cluster *[]string
+	var port *int
+
+	cmd := &cobra.Command{
+		Use:   "webserver",
+		Short: "Start a web server.",
+		//Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			WebServer(*port, defaultDatabase, *cluster)
+			return nil
+		},
+	}
+
+	flags := cmd.Flags()
+	cluster = flags.StringSliceP("cluster", "c", defaultCluster, "addresses of existing cluster nodes")
+	port = flags.IntP("port", "p", 4001, "port to serve traffic on")
 
 	return cmd
 }
