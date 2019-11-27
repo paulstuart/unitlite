@@ -61,7 +61,7 @@ func myIP() string {
 
 // WebServer provides a web interface to the database
 func WebServer(port int, dbname string, cluster []string) {
-	handlers, err := setupHandlers(dbname, cluster )
+	handlers, err := setupHandlers(dbname, cluster)
 	if err != nil {
 		panic(err)
 	}
@@ -83,11 +83,11 @@ func webServer(port int, handlers ...WebHandler) {
 }
 
 func setupHandlers(dbname string, cluster []string) ([]WebHandler, error) {
-	x, err := NewConnection(dbname , cluster)
+	x, err := NewConnection(dbname, cluster)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to make queryer")
 	}
-	return  makeHandlers(x, x), nil
+	return makeHandlers(x, x), nil
 }
 
 func makeHandlers(exec Executor, query Queryor) []WebHandler {
@@ -99,23 +99,27 @@ func makeHandlers(exec Executor, query Queryor) []WebHandler {
 }
 
 func homePage(w http.ResponseWriter, r *http.Request) {
+	log.Println("home page has been hit")
 	w.Write([]byte("nothing to see here"))
 }
 
 func makeHandleExec(exec Executor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		log.Println("exec page has been hit")
 		if r.Method != "POST" {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 		defer r.Body.Close()
-		var statements  []string
+		var statements []string
 		if err := json.NewDecoder(r.Body).Decode(&statements); err != nil {
+			log.Printf("exec error getting queries: %v\n", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		resp, err := exec.Execute(statements...)
 		if err != nil {
+			log.Printf("error executing queries: %v\n", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -125,19 +129,24 @@ func makeHandleExec(exec Executor) http.HandlerFunc {
 
 func makeHandleQuery(queryor Queryor) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		log.Println("query page has been hit")
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		// TODO: add perm check and timing 
+		// TODO: add perm check and timing
 		if r.Method != "GET" && r.Method != "POST" {
+		log.Printf("invalid method: %q\n", r.Method)
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 		queries, err := requestQueries(r)
 		if err != nil {
+			log.Printf("error getting queries: %v\n", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		log.Printf("queries submitted: %v\n", queries)
 		resp, err := queryor.QueryDB(queries...)
 		if err != nil {
+			log.Printf("error executing queries: %v\n", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -147,16 +156,6 @@ func makeHandleQuery(queryor Queryor) http.HandlerFunc {
 		//w.Write([]byte("nothing to query"))
 	}
 }
-
-/*
-func handleExec(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("nothing to exec"))
-}
-
-func handleQuery(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("nothing to query"))
-}
-*/
 
 func requestQueries(r *http.Request) ([]string, error) {
 	if r.Method == "GET" {
@@ -257,7 +256,6 @@ func txTimeout(req *http.Request) (time.Duration, bool, error) {
 func idleTimeout(req *http.Request) (time.Duration, bool, error) {
 	return durationParam(req, "idle_timeout")
 }
-
 
 /*
 // level returns the requested consistency level for a query
