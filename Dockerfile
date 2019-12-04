@@ -25,9 +25,18 @@ RUN curl -kL https://dl.google.com/go/go1.13.4.linux-amd64.tar.gz | tar -xzf -
 
 RUN echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 
-RUN apt-get install -y git
+RUN apt-get install -y 	\
+	git 		\
+	man 		\
+	man-db		\
+	manpages 	\
+	net-tools	\
+	pkg-config 	\
+	strace		\
+	tcl-dev		\
+	vim 
 
-RUN mkdir -p ~/go/{bin,pkg,src}
+RUN mkdir -p ~/go/bin ~/go/pkg ~/go/src
 RUN mkdir -p /root/go/src/github.com/paulstuart #/unitlite
 
 # host version uses ssh, but we don't want that inside docker container
@@ -40,7 +49,7 @@ RUN cd /root/go/src/github.com/paulstuart && git clone https://github.com/paulst
 
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-RUN cd /root/go/src/github.com/paulstuart/unitlite/src && go get -u -v ./...
+RUN cd /root/go/src/github.com/paulstuart/unitlite/dqtest && go get -u -v ./...
 #RUN cd /root/go/src/github.com/paulstuart/unitlite && ls -lR
 
-RUN apt-get install -y vim net-tools
+
