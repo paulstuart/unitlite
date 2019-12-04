@@ -36,6 +36,7 @@ Complete documentation is available at https://github.com/canonical/go-dqlite`,
 	cmd.AddCommand(newCluster())
 	cmd.AddCommand(newAdhoc())
 	cmd.AddCommand(newWeb())
+	cmd.AddCommand(newDumper())
 
 	return cmd
 }
@@ -174,6 +175,24 @@ func newAdhoc() *cobra.Command {
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return dbExec(defaultDatabase, *cluster, args...)
+		},
+	}
+	flags := cmd.Flags()
+	cluster = flags.StringSliceP("cluster", "c", defaultCluster, "addresses of existing cluster nodes")
+
+	return cmd
+}
+
+// Return a new dump command.
+func newDumper() *cobra.Command {
+	var cluster *[]string
+
+	cmd := &cobra.Command{
+		Use:   "dump database",
+		Short: "dump the Database and its associated WAL file.",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return dbDump(args[0], defaultDatabase, *cluster)
 		},
 	}
 	flags := cmd.Flags()

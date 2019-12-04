@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/canonical/go-dqlite/driver"
 	"github.com/pkg/errors"
 )
 
+// all purpose wrapper (for now) TODO: rethink this
 func dbExec(dbname string, cluster []string, statements ...string) error {
 	store := getStore(cluster)
 	driver, err := driver.New(store, driver.WithLogFunc(logFunc))
@@ -27,7 +31,7 @@ func dbExec(dbname string, cluster []string, statements ...string) error {
 
 	for i, statement := range statements {
 		action := strings.ToUpper(strings.Fields(statement)[0])
-		if action == "SELECT" {
+		if action == "SELECT" || action == "PRAGMA" {
 			rows, err := db.Query(statement)
 			if err != nil {
 				return errors.Wrap(err, "query failed")
@@ -45,7 +49,7 @@ func dbExec(dbname string, cluster []string, statements ...string) error {
 				if err := rows.Scan(scanTo...); err != nil {
 					return errors.Wrap(err, "failed to scan row")
 				}
-				fmt.Println(buffer)
+				fmt.Printf("SCANNED: %v\n", buffer)
 			}
 			continue
 		}
@@ -113,7 +117,8 @@ func dbUpdate(key, value string, cluster []string) error {
 }
 
 type Queryor interface {
-	QueryDB(queries ...string) ([][]string, error)
+	//QueryDB(queries ...string) ([][]string, error)
+	QueryDB(queries string, args ...interface{}) ([]Rows, error)
 	Close() error
 }
 
@@ -142,7 +147,60 @@ func (d *dbx) Close() error {
 	return d.db.Close()
 }
 
-func (d *dbx) QueryDB(queries ...string) ([][]string, error) {
+func (d *dbx) QueryDB(query string, args ...interface{}) ([]Rows, error) {
+	log.Printf("QUERY: %s ARGS: %v\n", query, args)
+	reply := make([]Rows, 0, 32)
+	action := strings.ToUpper(strings.Fields(query)[0])
+	if action != "SELECT" && action != "PRAGMA" {
+		return nil, fmt.Errorf("Invalid action: %q -- must use SELECT", action)
+	}
+	rows, err := d.db.Query(query)
+	if err != nil {
+		return nil, errors.Wrap(err, "query failed")
+	}
+	defer rows.Close()
+	var resp Rows
+	resp.Columns, _ = rows.Columns()
+	resp.Types = make([]string, len(resp.Columns))
+	colTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, errors.Wrap(err, "column types fail")
+	}
+	for i, colType := range colTypes {
+		fmt.Printf("COL TYPES (%d): %q SCAN: %v\n", i, colType.DatabaseTypeName(), colType.ScanType())
+		resp.Types[i] = colType.DatabaseTypeName()
+	}
+	fmt.Printf("\nRESP TYPES: %v\n\n", resp.Types)
+	// TODO: add support for NextResultSet()
+	for rows.Next() {
+		// TODO: optimize by scanning directly into new resp.Rows
+		//buffer := make([]string, len(resp.Columns))
+		buffer := make([]interface{}, len(resp.Columns))
+		scanTo := make([]interface{}, len(buffer))
+		for i := range buffer {
+			scanTo[i] = &buffer[i]
+		}
+		if err := rows.Scan(scanTo...); err != nil {
+			return nil, errors.Wrap(err, "failed to scan row")
+		}
+		fmt.Printf("SCANNED: %v\n", buffer)
+		resp.Values = append(resp.Values, buffer)
+	}
+	reply = append(reply, resp)
+	return reply, nil
+}
+
+/*
+// Rows represents the outcome of an operation that returns query data.
+type Rows struct {
+	Columns []string        `json:"columns,omitempty"`
+	Types   []string        `json:"types,omitempty"`
+	Values  [][]interface{} `json:"values,omitempty"`
+	Error   string          `json:"error,omitempty"`
+	Time    float64         `json:"time,omitempty"`
+}
+func (d *dbx) QueryDB(queries ...string) (*Rows, error) {
+	var resp Rows
 	reply := make([][]string, 0, 32)
 	for _, statement := range queries {
 		action := strings.ToUpper(strings.Fields(statement)[0])
@@ -173,11 +231,6 @@ func (d *dbx) QueryDB(queries ...string) ([][]string, error) {
 	}
 	return reply, nil
 }
-
-/*
-	if _, err := db.Exec(statement); err != nil {
-		return errors.Wrapf(err, "dbExec fail %d/%d", i+1, len(statements))
-	}
 */
 
 type Result struct {
@@ -197,9 +250,18 @@ type Rows struct {
 }
 
 type ExecuteResponse struct {
-	Results []Result
-	Time    float64
-	Raft    RaftResponse
+	Results []Result     `json:"results,omitempty"`
+	Time    float64      `json:"time,omitempty"`
+	Raft    RaftResponse `json:"raft,omitempty"`
+}
+
+// TODO: this is the generic response for rqlite
+// make it work for now but shape to make our own
+type OldResponse struct {
+	Results interface{} `json:"results,omitempty"`
+	Error   string      `json:"error,omitempty"`
+	Time    float64     `json:"time,omitempty"`
+	// contains filtered or unexported fields
 }
 
 type Executor interface {
@@ -214,10 +276,12 @@ func (d *dbx) Execute(statements ...string) (*ExecuteResponse, error) {
 	for i, statement := range statements {
 		resp, err := d.db.Exec(statement)
 		if err != nil {
-			return nil, errors.Wrapf(err, "dbExec fail %d/%d", i+1, len(statements))
+			log.Printf("EXEC FAIL FOR: %q -- %v\n", statement, err)
+			return nil, errors.Wrapf(err, "dbx.Execute fail (%d/%d): %q", i+1, len(statements), statement)
 		}
 		lastID, _ := resp.LastInsertId()
 		affected, _ := resp.RowsAffected()
+		log.Printf("EXEC OK (%d): %s\n", affected, statement)
 		result := Result{LastInsertID: lastID, RowsAffected: affected}
 		results = append(results, result)
 	}
@@ -225,27 +289,6 @@ func (d *dbx) Execute(statements ...string) (*ExecuteResponse, error) {
 	return &ExecuteResponse{Results: results}, nil
 }
 
-/*
-func handleExecute(connID uint64, w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
-	queries := []string{}
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&queries); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	var resp Response
-	results, err := execer.Execute(queries...)
-	if err != nil {
-		resp.Error = err.Error()
-	} else {
-		resp.Results = results.Results
-		resp.Raft = &results.Raft
-	}
-	writeResponse(w, r, &resp)
-}
-*/
 
 func writeResponse(w http.ResponseWriter, r *http.Request, j *ExecuteResponse) {
 	pretty, _ := isPretty(r)
@@ -261,42 +304,25 @@ func writeResponse(w http.ResponseWriter, r *http.Request, j *ExecuteResponse) {
 	}
 }
 
-/*
-
-// isPretty returns whether the HTTP response body should be pretty-printed.
-func isPretty(req *http.Request) (bool, error) {
-	return queryParam(req, "pretty")
-}
-
-// queryParam returns whether the given query param is set to true.
-func queryParam(req *http.Request, param string) (bool, error) {
-	err := req.ParseForm()
+func dbDump(filename, dbname string, cluster []string) error {
+	client, err := getLeader(cluster)
 	if err != nil {
-		return false, err
+		return errors.Wrap(err, "can't get leader")
 	}
-	if _, ok := req.Form[param]; ok {
-		return true, nil
-	}
-	return false, nil
-}
-
-// durationParam returns the duration of the given query param, if set.
-func durationParam(req *http.Request, param string) (time.Duration, bool, error) {
-	q := req.URL.Query()
-	t := strings.TrimSpace(q.Get(param))
-	if t == "" {
-		return 0, false, nil
-	}
-	dur, err := time.ParseDuration(t)
+	log.Println("dumping:", dbname)
+	files, err := client.Dump(context.Background(), dbname)
 	if err != nil {
-		return 0, false, err
+		return errors.Wrap(err, "dump failed")
 	}
-	return dur, true, nil
+	for _, file := range files {
+		f, err := os.Create(file.Name)
+		if err != nil {
+			return errors.Wrapf(err, "create failed for file: %s", file.Name)
+		}
+		if _, err = f.Write(file.Data); err != nil {
+			return errors.Wrap(err, "write failed")
+		}
+		f.Close()
+	}
+	return nil
 }
-
-// stmtParam returns the value for URL param 'q', if present.
-func stmtParam(req *http.Request) (string, error) {
-	q := req.URL.Query()
-	return strings.TrimSpace(q.Get("q")), nil
-}
-*/

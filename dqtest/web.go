@@ -144,16 +144,19 @@ func makeHandleQuery(queryor Queryor) http.HandlerFunc {
 			return
 		}
 		log.Printf("queries submitted: %v\n", queries)
-		resp, err := queryor.QueryDB(queries...)
+		// TODO: undo the mutiple queries rqlite nonsense
+		resp, err := queryor.QueryDB(queries[0])
 		if err != nil {
 			log.Printf("error executing queries: %v\n", err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
+		reply := Response{
+			Results: resp,
+		}
 		enc := json.NewEncoder(w)
-		enc.Encode(resp)
-		//w.Write([]byte("nothing to query"))
+		enc.Encode(reply)
 	}
 }
 
